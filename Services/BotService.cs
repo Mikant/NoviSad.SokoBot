@@ -1,9 +1,11 @@
+using System;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NoviSad.SokoBot.Data.Entities;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -38,6 +40,12 @@ public class BotService {
         };
 
         await handler;
+    }
+
+    public void NotifyNewPassengerIsOnboard(IReadOnlyCollection<TelegramUser> passengers) {
+    }
+
+    public void NotifyCanceled(IReadOnlyCollection<TelegramUser> usersToNotify, DateTimeOffset trainDepartureTime) {
     }
 
     private async Task BotOnMessageReceived(Message message, CancellationToken cancellationToken) {

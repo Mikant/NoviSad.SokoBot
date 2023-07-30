@@ -6,14 +6,28 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Telegram.Bot" Version="19.0.0" />
+    <PackageReference Include="Flurl.Http" Version="3.2.4" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="6.0.20" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="7.0.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="7.0.9" />
+    <PackageReference Include="Microsoft.VisualStudio.Validation" Version="17.6.11" />
+    <PackageReference Include="Telegram.Bot" Version="19.0.0" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.50" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="Resources\c40d2283df7145f393432bbf4bb8131e.jpg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.Development.json">
+      <DependentUpon>appsettings.json</DependentUpon>
+    </Content>
   </ItemGroup>
 
 </Project>
