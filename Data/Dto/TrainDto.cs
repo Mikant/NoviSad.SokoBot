@@ -9,8 +9,6 @@ public class TrainDto {
 
     public int TrainNumber { get; set; }
 
-    public DateOnly UtcDate { get; set; }
-
     public TrainDirection Direction { get; set; }
 
     public DateTimeOffset DepartureTime { get; set; }

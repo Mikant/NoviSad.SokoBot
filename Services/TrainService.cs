@@ -16,19 +16,16 @@ namespace NoviSad.SokoBot.Services;
 public class TrainService {
     private readonly ILogger<TrainService> _logger;
     private readonly ISystemClock _systemClock;
-    private readonly BotService _botService;
 
     public TrainService(
         ILogger<TrainService> logger,
-        ISystemClock systemClock,
-        BotService botService
+        ISystemClock systemClock
     ) {
         _logger = logger;
         _systemClock = systemClock;
-        _botService = botService;
     }
 
-    public async Task AddPassenger(BotDbContext dbContext, int trainNumber, DateTimeOffset departureTime, TelegramUser user, CancellationToken cancellationToken) {
+    public async Task<TrainSlot?> AddPassenger(BotDbContext dbContext, int trainNumber, DateTimeOffset departureTime, TelegramUser user, CancellationToken cancellationToken) {
         _logger.LogInformation(
             "Adding a passenger to train, nickname: {nickname}, trainNumber: {trainNumber}, departureTime: {departureTime}",
             user.Nickname,
@@ -39,23 +36,20 @@ public class TrainService {
         var train = await GetTrain(dbContext, trainNumber, departureTime, cancellationToken);
         if (train == null) {
             _logger.LogError("Train is not found, number: {number}, departureDate: {departureDate}", trainNumber, departureTime);
-            return;
+            return null;
         }
 
         var passenger = await GetOrCreatePassenger(dbContext, user, cancellationToken);
 
         train.Passengers.Add(passenger);
 
-        var usersToNotify = train.Passengers
-            .Select(x => new TelegramUser(x.Nickname))
-            .ToList();
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        _botService.NotifyNewPassengerIsOnboard(usersToNotify);
+        return new TrainSlot(
+            Convert(train),
+            train.Passengers.Select(Convert).ToList()
+        );
     }
 
-    public async Task RemovePassenger(BotDbContext dbContext, int trainNumber, DateTimeOffset departureTime, TelegramUser user, CancellationToken cancellationToken) {
+    public async Task<TrainSlot?> RemovePassenger(BotDbContext dbContext, int trainNumber, DateTimeOffset departureTime, TelegramUser user, CancellationToken cancellationToken) {
         _logger.LogInformation(
             "Removing a passenger from train, nickname: {nickname}, trainNumber: {trainNumber}, departureDate: {departureDate}",
             user.Nickname,
@@ -66,13 +60,13 @@ public class TrainService {
         var train = await GetTrain(dbContext, trainNumber, departureTime, cancellationToken);
         if (train == null) {
             _logger.LogError("Train is not found, trainNumber: {trainNumber}, departureDate: {departureDate}", trainNumber, departureTime);
-            return;
+            return null;
         }
 
         var passenger = await dbContext.Passengers.FindAsync(new object[] { user.Nickname }, cancellationToken);
         if (passenger == null) {
             _logger.LogWarning("Passenger is not found, nickname: {nickname}", user.Nickname);
-            return;
+            return null;
         }
 
         if (!train.Passengers.Remove(passenger)) {
@@ -88,12 +82,28 @@ public class TrainService {
             dbContext.Passengers.Remove(passenger);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        return new TrainSlot(
+            Convert(train),
+            train.Passengers.Select(Convert).ToList()
+        );
     }
 
     private static async Task<TrainDto?> GetTrain(BotDbContext dbContext, int trainNumber, DateTimeOffset localDepartureDate, CancellationToken cancellationToken) {
-        var utcDate = DateOnly.FromDateTime(TimeZoneHelper.ToCentralEuropeanTime(localDepartureDate).UtcDateTime);
-        return await dbContext.Trains.FindAsync(new object[] { trainNumber, utcDate }, cancellationToken);
+        return await dbContext.Trains
+            .Include(x => x.Passengers)
+            .Where(x => x.TrainNumber == trainNumber && x.DepartureTime == localDepartureDate)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<TrainSlot?> FindTrain(BotDbContext dbContext, int trainNumber, DateTimeOffset localDepartureDate, CancellationToken cancellationToken) {
+        var train = await GetTrain(dbContext, trainNumber, localDepartureDate, cancellationToken);
+        if (train == null)
+            return null;
+
+        return new TrainSlot(
+            Convert(train),
+            train.Passengers.Select(Convert).ToList()
+        );
     }
 
     private static async Task<IReadOnlyCollection<TrainDto>> GetTrains(BotDbContext dbContext, TrainDirection direction, DateOnly date, CancellationToken cancellationToken) {
@@ -120,13 +130,14 @@ public class TrainService {
     public async Task<IReadOnlyList<TrainSlot>> FindTrains(BotDbContext dbContext, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken) {
         var trains = await dbContext.Trains
             .Include(x => x.Passengers)
-            .Where(x => from <= x.DepartureTime && x.DepartureTime < to)
+            .Where(x => from <= x.ArrivalTime && x.DepartureTime < to)
+            .OrderBy(x => x.DepartureTime)
             .ToListAsync(cancellationToken);
 
         return trains
             .ConvertAll(x => new TrainSlot(
-                new TrainTimetableRecord(x.TrainNumber, x.DepartureTime, x.DepartureTime, x.Tag),
-                x.Passengers.Select(x => new TelegramUser(x.Nickname)).ToList()
+                Convert(x),
+                x.Passengers.Select(Convert).ToList()
             ));
     }
 
@@ -172,15 +183,7 @@ public class TrainService {
             _logger.LogDebug("Canceled trains found, count: {count}", canceledTrains.Count);
 
         foreach (var train in canceledTrains) {
-            var usersToNotify = train.Passengers
-                .Select(x => new TelegramUser(x.Nickname))
-                .ToList();
-
             train.Passengers.Clear();
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            _botService.NotifyCanceled(usersToNotify, train.DepartureTime);
         }
 
         dbContext.Trains.RemoveRange(canceledTrains);
@@ -213,17 +216,25 @@ public class TrainService {
                     Direction = direction,
                     DepartureTime = externalTrain.DepartureTime,
                     ArrivalTime = externalTrain.ArrivalTime,
-                    Tag = externalTrain.Tag
+                    Tag = externalTrain.Tag,
                 }, cancellationToken);
             }
         }
     }
 
     public void Cleanup(BotDbContext dbContext) {
-        var arrivedTrains = dbContext.Trains.Where(x => x.ArrivalTime > _systemClock.UtcNow);
+        var arrivedTrains = dbContext.Trains.Where(x => x.ArrivalTime < _systemClock.UtcNow);
         dbContext.Trains.RemoveRange(arrivedTrains);
 
         var nonboardedPassenger = dbContext.Passengers.Where(x => x.Trains.Count == 0);
         dbContext.Passengers.RemoveRange(nonboardedPassenger);
+    }
+
+    private static TelegramUser Convert(PassengerDto passenger) {
+        return new TelegramUser(passenger.Nickname);
+    }
+
+    private static TrainTimetableRecord Convert(TrainDto train) {
+        return new TrainTimetableRecord(train.TrainNumber, train.DepartureTime, train.ArrivalTime, train.Tag);
     }
 }

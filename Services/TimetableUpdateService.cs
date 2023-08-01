@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Internal;
@@ -31,12 +32,16 @@ public class TimetableUpdateService : BackgroundService {
                 var date = DateOnly.FromDateTime(_systemClock.UtcNow.UtcDateTime);
                 
                 foreach (var direction in Enum.GetValues<TrainDirection>()) {
-                    for (int dayOffset = 0; dayOffset < 1; dayOffset++) {
-                        await service.UpdateTimetable(context, direction, date, stoppingToken);
+                    for (int dayOffset = 0; dayOffset <= 1; dayOffset++) {
+                        await service.UpdateTimetable(context, direction, date.AddDays(dayOffset), stoppingToken);
                     }
                 }
 
                 await context.SaveChangesAsync(stoppingToken);
+
+                var count = await context.Trains.CountAsync(stoppingToken);
+
+                _logger.LogInformation("Timetable was updated, count: {count}", count);
 
                 await Task.Delay(TimeSpan.FromHours(12), stoppingToken);
 

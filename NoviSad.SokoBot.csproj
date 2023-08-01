@@ -19,15 +19,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Resources\c40d2283df7145f393432bbf4bb8131e.jpg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
+    <None Remove="db.sqlite" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Update="appsettings.Development.json">
       <DependentUpon>appsettings.json</DependentUpon>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Data\Migrations" />
   </ItemGroup>
 
 </Project>

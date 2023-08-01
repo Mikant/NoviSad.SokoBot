@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Options;
+using NoviSad.SokoBot.Data;
 using NoviSad.SokoBot.Services;
 using NoviSad.SokoBot.Tools;
 using Telegram.Bot;
@@ -8,7 +11,12 @@ using Telegram.Bot;
 namespace NoviSad.SokoBot;
 
 static class Program {
+
+
     static void Main(string[] args) {
+        using (var dbContext = new BotDbContext())
+            dbContext.Database.Migrate();
+
         var builder = WebApplication.CreateBuilder(args);
 
         builder.Services.Configure<BotConfiguration>(builder.Configuration.GetSection(nameof(BotConfiguration)));
@@ -21,9 +29,18 @@ static class Program {
                 return new TelegramBotClient(options, httpClient);
             });
 
+        builder.Services.AddSingleton<ISystemClock, SystemClock>();
+
+        builder.Services
+            .AddEntityFrameworkSqlite()
+            .AddDbContext<BotDbContext>();
+
+        builder.Services.AddHostedService<TimetableUpdateService>();
+        builder.Services.AddHostedService<CleanupService>();
         builder.Services.AddHostedService<WebhookService>();
 
-        builder.Services.AddScoped<BotService>();
+        builder.Services.AddScoped<ControlService>();
+        builder.Services.AddScoped<TrainService>();
 
         builder.Services
             .AddControllers()

@@ -12,7 +12,7 @@ public class TrainConfiguration : IEntityTypeConfiguration<TrainDto> {
         builder.HasKey(x => x.Id);
 
         builder
-            .HasIndex(x => new { x.Id, Date = x.UtcDate })
+            .HasIndex(x => new { x.Id, Date = x.DepartureTime })
             .IsUnique();
 
         builder.HasIndex(x => x.DepartureTime);
@@ -48,12 +48,5 @@ public class TrainConfiguration : IEntityTypeConfiguration<TrainDto> {
         builder
             .Property(x => x.Tag)
             .HasColumnName("tag");
-
-        const int MinutesInADay = 24 * 60 * 60;
-        builder
-            .Property(x => x.UtcDate)
-            .HasColumnName("utc_date")
-            .HasComputedColumnSql($"departure_time / {MinutesInADay}")
-            .IsRequired();
     }
 }
