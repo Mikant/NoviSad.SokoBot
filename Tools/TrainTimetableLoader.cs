@@ -12,6 +12,8 @@ using NoviSad.SokoBot.Data.Entities;
 namespace NoviSad.SokoBot.Tools;
 
 public static class TrainTimetableLoader {
+    public const string SokoTag = "Soko";
+
     public static Task<IReadOnlyList<TrainTimetableRecord>> Load(TrainDirection direction, DateOnly date, CancellationToken cancellationToken) {
         int fromId, toId;
         switch (direction) {
@@ -76,7 +78,7 @@ public static class TrainTimetableLoader {
 
         return name switch {
             "RE" => "Regio Voz",
-            "soko" => "Soko",
+            "soko" => SokoTag,
             "REx" => "Regio Voz X",
             _ => null
         };

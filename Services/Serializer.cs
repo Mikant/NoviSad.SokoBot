@@ -25,8 +25,8 @@ public static class Serializer {
         using (var writer = new BinaryWriter(stream)) {
             writer.Write((byte)137);
 
-            writer.Write(context.Cancel.HasValue);
-            writer.Write(context.Cancel ?? false);
+            writer.Write(context.Spectate.HasValue);
+            writer.Write(context.Spectate ?? false);
 
             writer.Write(context.Direction.HasValue);
             writer.Write((byte)(context.Direction ?? 0));
@@ -71,11 +71,8 @@ public static class Serializer {
         using (var writer = new BinaryWriter(stream)) {
             writer.Write((byte)139);
 
-            writer.Write(context.TrainNumber.HasValue);
-            writer.Write(context.TrainNumber ?? default);
-
-            writer.Write(context.DepartureTime.HasValue);
-            writer.Write((context.DepartureTime ?? default).UtcTicks);
+            writer.Write(context.TrainNumber);
+            writer.Write(context.DepartureTime.UtcTicks);
         }
 
         return Convert.ToBase64String(stream.ToArray());
@@ -90,8 +87,8 @@ public static class Serializer {
         if (reader.ReadByte() != 139)
             return null;
 
-        var trainNumber = ReadT(reader, x => x.ReadInt32());
-        var departureTime = ReadU(reader, x => x.ReadInt64(), x => new DateTimeOffset(x, TimeSpan.Zero));
+        var trainNumber = reader.ReadInt32();
+        var departureTime = new DateTimeOffset(reader.ReadInt64(), TimeSpan.Zero);
 
         return new TrainQuery(trainNumber, departureTime);
     }

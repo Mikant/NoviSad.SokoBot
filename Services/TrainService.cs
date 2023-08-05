@@ -63,7 +63,7 @@ public class TrainService {
             return null;
         }
 
-        var passenger = await dbContext.Passengers.FindAsync(new object[] { user.Nickname }, cancellationToken);
+        var passenger = await dbContext.Passengers.Where(x => x.Nickname == user.Nickname).FirstOrDefaultAsync(cancellationToken);
         if (passenger == null) {
             _logger.LogWarning("Passenger is not found, nickname: {nickname}", user.Nickname);
             return null;
@@ -115,7 +115,7 @@ public class TrainService {
     }
 
     private async Task<PassengerDto> GetOrCreatePassenger(BotDbContext dbContext, TelegramUser user, CancellationToken cancellationToken) {
-        var passenger = await dbContext.Passengers.FindAsync(new object[] { user.Nickname }, cancellationToken);
+        var passenger = await dbContext.Passengers.Where(x => x.Nickname == user.Nickname).FirstOrDefaultAsync(cancellationToken);
         if (passenger == null) {
             _logger.LogInformation("New passenger is created, nickname: {nickname}", user.Nickname);
             passenger = new PassengerDto { Nickname = user.Nickname };
@@ -127,10 +127,10 @@ public class TrainService {
         return passenger;
     }
 
-    public async Task<IReadOnlyList<TrainSlot>> FindTrains(BotDbContext dbContext, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken) {
+    public async Task<IReadOnlyList<TrainSlot>> FindTrains(BotDbContext dbContext, TrainDirection? direction, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken) {
         var trains = await dbContext.Trains
             .Include(x => x.Passengers)
-            .Where(x => from <= x.ArrivalTime && x.DepartureTime < to)
+            .Where(x => x.Direction == direction && from <= x.ArrivalTime && x.DepartureTime < to)
             .OrderBy(x => x.DepartureTime)
             .ToListAsync(cancellationToken);
 

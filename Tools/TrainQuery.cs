@@ -2,5 +2,5 @@
 
 namespace NoviSad.SokoBot.Tools;
 
-public record TrainQuery(int? TrainNumber, DateTimeOffset? DepartureTime) {
+public record TrainQuery(int TrainNumber, DateTimeOffset DepartureTime) {
 }
