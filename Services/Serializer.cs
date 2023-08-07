@@ -20,13 +20,14 @@ public static class Serializer {
         return hasValue ? convert(value) : default(U?);
     }
 
-    public static string SerializeRequestContext(RequestContext context) {
+    public static string Serialize(RequestContext context) {
         using var stream = new MemoryStream(64);
         using (var writer = new BinaryWriter(stream)) {
             writer.Write((byte)137);
 
-            writer.Write(context.Spectate.HasValue);
-            writer.Write(context.Spectate ?? false);
+            writer.Write(context.Cancel);
+
+            writer.Write(context.Spectate);
 
             writer.Write(context.Direction.HasValue);
             writer.Write((byte)(context.Direction ?? 0));
@@ -42,6 +43,8 @@ public static class Serializer {
 
             writer.Write(context.DepartureTime.HasValue);
             writer.Write((context.DepartureTime ?? default).UtcTicks);
+
+            writer.Write(context.Leave);
         }
 
         return Convert.ToBase64String(stream.ToArray());
@@ -56,23 +59,26 @@ public static class Serializer {
         if (reader.ReadByte() != 137)
             return null;
 
-        var cancel = ReadT(reader, x => x.ReadBoolean());
+        var cancel = reader.ReadBoolean();
+        var spectate = reader.ReadBoolean();
         var direction = ReadU(reader, x => x.ReadByte(), x => (TrainDirection)x);
         var searchStart = ReadU(reader, x => x.ReadInt64(), x => new DateTimeOffset(x, TimeSpan.Zero));
         var searchEnd = ReadU(reader, x => x.ReadInt64(), x => new DateTimeOffset(x, TimeSpan.Zero));
         var trainNumber = ReadT(reader, x => x.ReadInt32());
         var departureTime = ReadU(reader, x => x.ReadInt64(), x => new DateTimeOffset(x, TimeSpan.Zero));
+        var leave = reader.ReadBoolean();
 
-        return new RequestContext(cancel, direction, searchStart, searchEnd, trainNumber, departureTime);
+        return new RequestContext(cancel, spectate, direction, searchStart, searchEnd, trainNumber, departureTime, leave);
     }
 
-    public static string SerializeTrainQuery(TrainQuery context) {
+    public static string Serialize(TrainQuery context) {
         using var stream = new MemoryStream(64);
         using (var writer = new BinaryWriter(stream)) {
             writer.Write((byte)139);
 
             writer.Write(context.TrainNumber);
             writer.Write(context.DepartureTime.UtcTicks);
+            writer.Write(context.Leave);
         }
 
         return Convert.ToBase64String(stream.ToArray());
@@ -89,7 +95,8 @@ public static class Serializer {
 
         var trainNumber = reader.ReadInt32();
         var departureTime = new DateTimeOffset(reader.ReadInt64(), TimeSpan.Zero);
+        var leave = reader.ReadBoolean();
 
-        return new TrainQuery(trainNumber, departureTime);
+        return new TrainQuery(trainNumber, departureTime) { Leave = leave };
     }
 }

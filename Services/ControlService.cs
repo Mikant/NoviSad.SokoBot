@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Text;
@@ -17,6 +18,8 @@ using Telegram.Bot.Types.ReplyMarkups;
 namespace NoviSad.SokoBot.Services;
 
 public class ControlService {
+    private static readonly InlineKeyboardButton CancelButton = InlineKeyboardButton.WithCallbackData("◀️ Отмена", Serializer.Serialize(RequestContext.Empty with { Cancel = true }));
+
     private static readonly TimeSpan[] TimeCutoffs = { TimeSpan.FromHours(4), TimeSpan.FromHours(12), TimeSpan.FromHours(20) };
 
     private readonly ILogger<ControlService> _logger;
@@ -44,7 +47,6 @@ public class ControlService {
     public Task Handle(Update update, CancellationToken cancellationToken) {
         return update switch {
             { Message: { } message } => OnMessageReceived(message, cancellationToken),
-            { EditedMessage: { } message } => OnMessageReceived(message, cancellationToken),
             { CallbackQuery: { } callbackQuery } => BotOnCallbackQueryReceived(callbackQuery, cancellationToken),
             _ => Task.CompletedTask
         };
@@ -58,8 +60,8 @@ public class ControlService {
         var chatId = message.Chat.Id;
 
         var action = message.Text.Split(' ')[0] switch {
-            "/start" => Start(chatId, false, cancellationToken),
-            "/spectate" => Start(chatId, true, cancellationToken),
+            "/start" => Start(chatId, message.MessageId, false, cancellationToken),
+            "/spectate" => Start(chatId, message.MessageId, true, cancellationToken),
             _ => ShowUsage(chatId, cancellationToken)
         };
 
@@ -77,7 +79,9 @@ public class ControlService {
             cancellationToken: cancellationToken);
     }
 
-    private async Task Start(long chatId, bool spectate, CancellationToken cancellationToken) {
+    private async Task Start(long chatId, int messageId, bool spectate, CancellationToken cancellationToken) {
+        //await _botClient.DeleteMessageAsync(chatId, messageId, cancellationToken);
+
         if (spectate) {
             await _botClient.SendTextMessageAsync(
                 chatId: chatId,
@@ -105,91 +109,116 @@ public class ControlService {
                 return;
             }
 
-            var chatId = callbackQuery.Message.Chat.Id;
+            var username = callbackQuery.From.Username;
+            if (string.IsNullOrEmpty(username)) {
+                _logger.LogError("Empty username");
+                return;
+            }
+
+            var user = new TelegramUser(username, callbackQuery.Message.Chat.Id);
 
             var requestContext = Serializer.DeserializeRequestContext(callbackQuery.Data);
             if (requestContext != null) {
-                if (callbackQuery.Data != null) {
-                    try {
-                        if (!requestContext.Direction.HasValue) {
-                            // noop
+                await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
 
-                        } else if (!requestContext.SearchStart.HasValue || !requestContext.SearchEnd.HasValue) {
-                            await RequestTimeSpan(chatId, requestContext, cancellationToken);
+                if (requestContext.Cancel)
+                    return;
 
-                        } else if (!requestContext.TrainNumber.HasValue || !requestContext.DepartureTime.HasValue) {
-                            await RequestTrain(chatId, requestContext, cancellationToken);
+                try {
+                    if (!requestContext.Direction.HasValue) {
+                        // noop
 
-                        } else {
-                            await using var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
+                    } else if (!requestContext.SearchStart.HasValue || !requestContext.SearchEnd.HasValue) {
+                        await RequestTimeSpan(user, requestContext, cancellationToken);
 
-                            var username = callbackQuery.From.Username;
-                            if (string.IsNullOrEmpty(username)) {
-                                _logger.LogError("Empty username");
-                                return;
-                            }
+                    } else if (!requestContext.TrainNumber.HasValue || !requestContext.DepartureTime.HasValue) {
+                        await RequestTrain(user, requestContext, cancellationToken);
 
-                            var user = new TelegramUser(username);
+                    } else {
+                        await using var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
 
-                            var slot = await _trainService.FindTrain(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, cancellationToken);
+                        var slot = await _trainService.FindTrain(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, cancellationToken);
+                        if (slot == null) {
+                            _logger.LogError("Train is not found");
+                            await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
+                            return;
+                        }
+
+                        var spectate = requestContext.Spectate;
+                        var userExisted = slot.Passengers.Contains(user);
+
+                        if (!spectate) {
+                            if (!userExisted && !requestContext.Leave)
+                                slot = await _trainService.AddPassenger(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, user, cancellationToken);
+                            else if (userExisted && requestContext.Leave)
+                                slot = await _trainService.RemovePassenger(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, user, cancellationToken);
+
                             if (slot == null) {
-                                _logger.LogError("Train is not found");
+                                _logger.LogError("Train is not modified");
                                 await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
                                 return;
                             }
 
-                            var spectate = requestContext.Spectate == true;
-                            var onboarding = !slot.Passengers.Contains(user);
+                            await dbContext.SaveChangesAsync(cancellationToken);
+                        }
 
-                            if (!spectate) {
-                                if (onboarding)
-                                    slot = await _trainService.AddPassenger(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, user, cancellationToken);
-                                else
-                                    slot = await _trainService.RemovePassenger(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, user, cancellationToken);
-
-                                if (slot == null) {
-                                    _logger.LogError("Train is not modified");
-                                    await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
-                                    return;
-                                }
-
-                                await dbContext.SaveChangesAsync(cancellationToken);
-                            }
-
-                            if (!spectate)
-                                await Notify(callbackQuery.Id, onboarding ? "Сели в поезд" : "Сошли с поезда", cancellationToken);
-
-                            if (onboarding && !spectate)
+                        if (!spectate) {
+                            if (!userExisted && !requestContext.Leave) {
+                                await Notify(callbackQuery.Id, "Сели в поезд", cancellationToken);
                                 await NotifyNewPassengerIsOnboard(user, slot, cancellationToken);
-
-                            if (spectate || onboarding) {
-                                await ShowTrackerMessage(
-                                    chatId,
-                                    slot,
-                                    cancellationToken
-                                );
+                            } else if (userExisted && requestContext.Leave) {
+                                await Notify(callbackQuery.Id, "Сошли с поезда", cancellationToken);
                             }
                         }
-                    } catch (Exception e) {
-                        _logger.LogError(e, "An exception occurred");
+
+                        if (spectate || !userExisted && !requestContext.Leave) {
+                            await ShowTrackerMessage(
+                                user,
+                                slot,
+                                cancellationToken
+                            );
+                        }
                     }
+                } catch (Exception e) {
+                    _logger.LogError(e, "An exception occurred");
                 }
             } else {
                 var trainQuery = Serializer.DeserializeTrainQuery(callbackQuery.Data);
                 if (trainQuery != null) {
+                    await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+
                     await using var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
 
                     var slot = await _trainService.FindTrain(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, cancellationToken);
-                    if (slot == null)
+                    if (slot == null) {
+                        _logger.LogError("Train is not found");
+                        await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
                         return;
+                    }
 
-                    await ShowTrackerMessage(
-                        chatId: chatId,
-                        slot,
-                        cancellationToken: cancellationToken
-                    );
+                    if (trainQuery.Leave) {
+                        slot = await _trainService.RemovePassenger(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, user, cancellationToken);
+
+                        if (slot == null) {
+                            _logger.LogError("Train is not modified");
+                            await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
+                            return;
+                        }
+
+                        await dbContext.SaveChangesAsync(cancellationToken);
+
+                        await Notify(callbackQuery.Id, "Сошли с поезда", cancellationToken);
+
+                    } else {
+                        await ShowTrackerMessage(
+                            user,
+                            slot,
+                            cancellationToken: cancellationToken
+                        );
+                    }
                 }
             }
+
         } finally {
             if (!_callbackIsAnswered) {
                 await Notify(
@@ -202,9 +231,11 @@ public class ControlService {
 
     private async Task RequestDirection(long chatId, RequestContext requestContext, CancellationToken cancellationToken) {
         var buttons = new List<InlineKeyboardButton> {
-            InlineKeyboardButton.WithCallbackData("Нови Сад", Serializer.SerializeRequestContext(requestContext with { Direction = TrainDirection.NoviSadToBelgrade })),
-            InlineKeyboardButton.WithCallbackData("Београд Центар", Serializer.SerializeRequestContext(requestContext with { Direction = TrainDirection.BelgradeToNoviSad })),
+            InlineKeyboardButton.WithCallbackData("Нови Сад", Serializer.Serialize(requestContext with { Direction = TrainDirection.NoviSadToBelgrade })),
+            InlineKeyboardButton.WithCallbackData("Београд Центар", Serializer.Serialize(requestContext with { Direction = TrainDirection.BelgradeToNoviSad })),
         };
+
+        buttons.Add(CancelButton);
 
         await _botClient.SendTextMessageAsync(
             chatId: chatId,
@@ -214,7 +245,7 @@ public class ControlService {
         );
     }
 
-    private async Task RequestTimeSpan(long chatId, RequestContext requestContext, CancellationToken cancellationToken) {
+    private async Task RequestTimeSpan(TelegramUser user, RequestContext requestContext, CancellationToken cancellationToken) {
         var cetCurrentTime = TimeZoneHelper.ToCentralEuropeanTime(_systemClock.UtcNow);
         var slotStartIndex = Array.BinarySearch(TimeCutoffs, cetCurrentTime.TimeOfDay);
         if (slotStartIndex < 0) {
@@ -246,20 +277,22 @@ public class ControlService {
             var text = $"{offset0:HH:mm} - {offset1:HH:mm}";
             var context = requestContext with { SearchStart = offset0, SearchEnd = offset1 };
 
-            buttons.Add(InlineKeyboardButton.WithCallbackData(text, Serializer.SerializeRequestContext(context)));
+            buttons.Add(InlineKeyboardButton.WithCallbackData(text, Serializer.Serialize(context)));
 
             offset0 = offset1;
         }
 
+        buttons.Add(CancelButton);
+
         await _botClient.SendTextMessageAsync(
-            chatId: chatId,
+            chatId: user,
             text: "Время:",
             replyMarkup: ToLinearMarkup(buttons),
             cancellationToken: cancellationToken
         );
     }
 
-    private async Task RequestTrain(long chatId, RequestContext requestContext, CancellationToken cancellationToken) {
+    private async Task RequestTrain(TelegramUser user, RequestContext requestContext, CancellationToken cancellationToken) {
         if (!requestContext.SearchStart.HasValue || !requestContext.SearchEnd.HasValue) {
             _logger.LogError("Invalid search range");
             return;
@@ -279,29 +312,47 @@ public class ControlService {
 
                 static bool IsSoko(string? tag) => tag == TrainTimetableLoader.SokoTag;
 
-                var passengersText = x.Passengers.Count == 0 ? "-" : $"{x.Passengers.Count} чел.";
-                var text = $"{(IsSoko(x.Train.Tag) ? "𓅃" : "    ")}      {cetDepartureTime:HH:mm}      {passengersText,6}";
+                var passengersText = x.Passengers.Count == 0 ? string.Empty : $"{x.Passengers.Count} 𓀠";
 
-                return InlineKeyboardButton.WithCallbackData(text, Serializer.SerializeRequestContext(requestContext with { TrainNumber = x.Train.TrainNumber, DepartureTime = x.Train.DepartureTime }));
+                var row = new List<InlineKeyboardButton>();
+
+                if (!requestContext.Spectate && x.Passengers.Any(x => x.Nickname == user.Nickname)) {
+                    var text = $"{(IsSoko(x.Train.Tag) ? "𓅃 " : string.Empty)}{cetDepartureTime:HH:mm} {passengersText}";
+
+                    row.Add(InlineKeyboardButton.WithCallbackData(text, Serializer.Serialize(requestContext with { TrainNumber = x.Train.TrainNumber, DepartureTime = x.Train.DepartureTime, Leave = false })));
+                    row.Add(InlineKeyboardButton.WithCallbackData("❌ Выйти", Serializer.Serialize(requestContext with { TrainNumber = x.Train.TrainNumber, DepartureTime = x.Train.DepartureTime, Leave = true })));
+                } else {
+                    var text = $"{(IsSoko(x.Train.Tag) ? "𓅃" : "    ")}        {cetDepartureTime:HH:mm}      {passengersText,6}";
+
+                    row.Add(InlineKeyboardButton.WithCallbackData(text, Serializer.Serialize(requestContext with { TrainNumber = x.Train.TrainNumber, DepartureTime = x.Train.DepartureTime, Leave = false })));
+                }
+
+                return row;
             });
 
+        buttons = buttons.Append(new List<InlineKeyboardButton> { CancelButton });
+
         await _botClient.SendTextMessageAsync(
-            chatId: chatId,
+            chatId: user,
             text: "Поезд:",
-            replyMarkup: ToLinearMarkup(buttons),
+            replyMarkup: new InlineKeyboardMarkup(buttons),
             cancellationToken: cancellationToken
         );
     }
 
-    private async Task ShowTrackerMessage(long chatId, TrainSlot slot, CancellationToken cancellationToken) {
-        var buttons = new[] {
-            InlineKeyboardButton.WithCallbackData("Обновить", Serializer.SerializeTrainQuery(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime)))
-        };
+    private async Task ShowTrackerMessage(TelegramUser user, TrainSlot slot, CancellationToken cancellationToken) {
+        var refreshButton = InlineKeyboardButton.WithCallbackData("🔄 Обновить", Serializer.Serialize(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime)));
 
         var cetDepartureTime = TimeZoneHelper.ToCentralEuropeanTime(slot.Train.DepartureTime);
 
         var messageBuilder = new StringBuilder();
-        messageBuilder.AppendLine($"Поезд на {cetDepartureTime:HH:mm} {cetDepartureTime:dd/MM}");
+        messageBuilder.Append("Поезд ");
+        messageBuilder.Append(slot.Train.Direction switch {
+            TrainDirection.NoviSadToBelgrade => "Нови-Сад - Белград",
+            TrainDirection.BelgradeToNoviSad => "Белград - Нови-Сад",
+            _ => throw new InvalidEnumArgumentException(nameof(TrainDirection), (int)slot.Train.Direction, typeof(TrainDirection))
+        });
+        messageBuilder.AppendLine($" на {cetDepartureTime:HH:mm} {cetDepartureTime:dd/MM}");
 
         if (slot.Passengers.Count == 0) {
             messageBuilder.AppendLine("Нет пассажиров");
@@ -313,10 +364,20 @@ public class ControlService {
             }
         }
 
+        InlineKeyboardMarkup markup;
+        if (slot.Passengers.Contains(user)) {
+            var exitButton = InlineKeyboardButton.WithCallbackData("❌ Выйти", Serializer.Serialize(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime) { Leave = true }));
+
+            markup = new InlineKeyboardMarkup(new[] { new[] { refreshButton, exitButton } });
+
+        } else {
+            markup = new InlineKeyboardMarkup(refreshButton);
+        }
+
         await _botClient.SendTextMessageAsync(
-            chatId: chatId,
+            chatId: user,
             text: messageBuilder.ToString(),
-            replyMarkup: ToLinearMarkup(buttons),
+            replyMarkup: markup,
             cancellationToken: cancellationToken);
     }
 
@@ -342,21 +403,13 @@ public class ControlService {
                 continue;
 
             try {
-                var identifier = new ChatId(passenger.Username).Identifier;
-                if (identifier == null) {
-                    _logger.LogError("Invalid chat id for username: {username}", passenger.Username);
-                    continue;
-                }
-
-                var chatId = identifier.Value;
-
                 var buttons = new[] {
-                    InlineKeyboardButton.WithCallbackData("Посмотреть", Serializer.SerializeTrainQuery(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime)))
+                    InlineKeyboardButton.WithCallbackData("Посмотреть", Serializer.Serialize(query))
                 };
 
                 await _botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: $"Новый попутчик на {slot.Train.DepartureTime:HH:mm}: {user.Nickname}",
+                    chatId: passenger,
+                    text: $"Новый попутчик на {slot.Train.DepartureTime:HH:mm}: {user.Username}",
                     replyMarkup: ToLinearMarkup(buttons),
                     cancellationToken: cancellationToken);
 

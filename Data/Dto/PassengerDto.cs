@@ -7,5 +7,7 @@ public class PassengerDto {
 
     public string Nickname { get; set; }
 
+    public long ChatId { get; set; }
+
     public List<TrainDto> Trains { get; set; }
 }

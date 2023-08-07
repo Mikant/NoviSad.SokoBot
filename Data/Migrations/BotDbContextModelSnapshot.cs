@@ -23,6 +23,10 @@ namespace NoviSad.SokoBot.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
 
+                    b.Property<long>("ChatId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("chat_id");
+
                     b.Property<string>("Nickname")
                         .IsRequired()
                         .HasColumnType("TEXT")

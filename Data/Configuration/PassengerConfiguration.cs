@@ -24,5 +24,10 @@ public class PassengerConfiguration : IEntityTypeConfiguration<PassengerDto> {
             .Property(x => x.Nickname)
             .HasColumnName("nickname")
             .IsRequired();
+
+        builder
+            .Property(x => x.ChatId)
+            .HasColumnName("chat_id")
+            .IsRequired();
     }
 }

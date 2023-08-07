@@ -14,26 +14,22 @@ namespace NoviSad.SokoBot.Tools;
 public static class TrainTimetableLoader {
     public const string SokoTag = "Soko";
 
-    public static Task<IReadOnlyList<TrainTimetableRecord>> Load(TrainDirection direction, DateOnly date, CancellationToken cancellationToken) {
-        int fromId, toId;
+    public static async Task<IReadOnlyList<TrainTimetableRecord>> Load(TrainDirection direction, DateOnly date, CancellationToken cancellationToken) {
+        int fromStationId, toStationId;
         switch (direction) {
             case TrainDirection.NoviSadToBelgrade:
-                fromId = TrainStationsIds.NoviSad;
-                toId = TrainStationsIds.BelgradeCentral;
+                fromStationId = TrainStationsIds.NoviSad;
+                toStationId = TrainStationsIds.BelgradeCentral;
                 break;
             case TrainDirection.BelgradeToNoviSad:
-                fromId = TrainStationsIds.BelgradeCentral;
-                toId = TrainStationsIds.NoviSad;
+                fromStationId = TrainStationsIds.BelgradeCentral;
+                toStationId = TrainStationsIds.NoviSad;
                 break;
             default:
                 throw new InvalidEnumArgumentException(nameof(direction), (int)direction, typeof(TrainDirection));
         }
 
-        return Load(fromId, toId, TimeZoneHelper.ToCentralEuropeanTime(date), cancellationToken);
-    }
-
-    private static async Task<IReadOnlyList<TrainTimetableRecord>> Load(int fromStationId, int toStationId, DateTimeOffset offset, CancellationToken cancellationToken) {
-        var local = TimeZoneHelper.ToCentralEuropeanTime(offset).LocalDateTime;
+        var local = TimeZoneHelper.ToCentralEuropeanTime(date).LocalDateTime;
 
         var url = $@"https://w3.srbvoz.rs/redvoznje/direktni/_/{fromStationId}/_/{toStationId}/{local:dd.MM.yyyy}/{local:HHmm}";
         var response = await url.GetAsync(cancellationToken);
@@ -59,7 +55,7 @@ public static class TrainTimetableLoader {
                 var departure = TimeZoneHelper.ToCentralEuropeanTime(d0.ToDateTime(t0));
                 var arrival = TimeZoneHelper.ToCentralEuropeanTime(d1.ToDateTime(t1));
 
-                return new TrainTimetableRecord(number, departure, arrival, tag);
+                return new TrainTimetableRecord(number, direction, departure, arrival, tag);
             })
             .ToList();
     }

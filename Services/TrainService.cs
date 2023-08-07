@@ -118,7 +118,7 @@ public class TrainService {
         var passenger = await dbContext.Passengers.Where(x => x.Nickname == user.Nickname).FirstOrDefaultAsync(cancellationToken);
         if (passenger == null) {
             _logger.LogInformation("New passenger is created, nickname: {nickname}", user.Nickname);
-            passenger = new PassengerDto { Nickname = user.Nickname };
+            passenger = new PassengerDto { Nickname = user.Nickname, ChatId = user.ChatId };
             await dbContext.Passengers.AddAsync(passenger, cancellationToken);
         } else {
             _logger.LogDebug("Passenger is found in store, nickname: {nickname}", user.Nickname);
@@ -231,10 +231,10 @@ public class TrainService {
     }
 
     private static TelegramUser Convert(PassengerDto passenger) {
-        return new TelegramUser(passenger.Nickname);
+        return new TelegramUser(passenger.Nickname, passenger.ChatId);
     }
 
     private static TrainTimetableRecord Convert(TrainDto train) {
-        return new TrainTimetableRecord(train.TrainNumber, train.DepartureTime, train.ArrivalTime, train.Tag);
+        return new TrainTimetableRecord(train.TrainNumber, train.Direction, train.DepartureTime, train.ArrivalTime, train.Tag);
     }
 }
