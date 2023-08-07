@@ -25,8 +25,8 @@ public class ControlService {
     private readonly ILogger<ControlService> _logger;
     private readonly ISystemClock _systemClock;
     private readonly ITelegramBotClient _botClient;
-    private readonly TrainService _trainService;
     private readonly IServiceProvider _serviceProvider;
+    private readonly TrainService _trainService;
 
     private bool _callbackIsAnswered;
 
@@ -175,6 +175,7 @@ public class ControlService {
                             await ShowTrackerMessage(
                                 user,
                                 slot,
+                                null,
                                 cancellationToken
                             );
                         }
@@ -185,18 +186,19 @@ public class ControlService {
             } else {
                 var trainQuery = Serializer.DeserializeTrainQuery(callbackQuery.Data);
                 if (trainQuery != null) {
-                    await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
-
                     await using var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
 
                     var slot = await _trainService.FindTrain(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, cancellationToken);
                     if (slot == null) {
                         _logger.LogError("Train is not found");
                         await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
+                        await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
                         return;
                     }
 
                     if (trainQuery.Leave) {
+                        await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+
                         slot = await _trainService.RemovePassenger(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, user, cancellationToken);
 
                         if (slot == null) {
@@ -213,6 +215,7 @@ public class ControlService {
                         await ShowTrackerMessage(
                             user,
                             slot,
+                            callbackQuery.Message.MessageId,
                             cancellationToken: cancellationToken
                         );
                     }
@@ -340,9 +343,7 @@ public class ControlService {
         );
     }
 
-    private async Task ShowTrackerMessage(TelegramUser user, TrainSlot slot, CancellationToken cancellationToken) {
-        var refreshButton = InlineKeyboardButton.WithCallbackData("🔄 Обновить", Serializer.Serialize(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime)));
-
+    private async Task ShowTrackerMessage(TelegramUser user, TrainSlot slot, int? updateMessageId, CancellationToken cancellationToken) {
         var cetDepartureTime = TimeZoneHelper.ToCentralEuropeanTime(slot.Train.DepartureTime);
 
         var messageBuilder = new StringBuilder();
@@ -364,6 +365,8 @@ public class ControlService {
             }
         }
 
+        var refreshButton = InlineKeyboardButton.WithCallbackData("🔄 Обновить", Serializer.Serialize(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime)));
+
         InlineKeyboardMarkup markup;
         if (slot.Passengers.Contains(user)) {
             var exitButton = InlineKeyboardButton.WithCallbackData("❌ Выйти", Serializer.Serialize(new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime) { Leave = true }));
@@ -374,11 +377,25 @@ public class ControlService {
             markup = new InlineKeyboardMarkup(refreshButton);
         }
 
-        await _botClient.SendTextMessageAsync(
-            chatId: user,
-            text: messageBuilder.ToString(),
-            replyMarkup: markup,
-            cancellationToken: cancellationToken);
+        if (updateMessageId.HasValue) {
+            await _botClient.EditMessageTextAsync(
+                chatId: user,
+                messageId: updateMessageId.Value,
+                text: messageBuilder.ToString(),
+                cancellationToken: cancellationToken);
+            await _botClient.EditMessageReplyMarkupAsync(
+                chatId: user,
+                messageId: updateMessageId.Value,
+                replyMarkup: markup,
+                cancellationToken: cancellationToken);
+
+        } else {
+            await _botClient.SendTextMessageAsync(
+                chatId: user,
+                text: messageBuilder.ToString(),
+                replyMarkup: markup,
+                cancellationToken: cancellationToken);
+        }
     }
 
     private Task NotifyTrainIsNotFound(string callbackQueryId, CancellationToken cancellationToken) {
