@@ -73,7 +73,7 @@ namespace NoviSad.SokoBot.Data.Migrations
 
                     b.HasIndex("DepartureTime");
 
-                    b.HasIndex("Id", "DepartureTime")
+                    b.HasIndex("TrainNumber", "DepartureTime")
                         .IsUnique();
 
                     b.ToTable("train", (string)null);

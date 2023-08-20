@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoviSad.SokoBot.Data;
 using NoviSad.SokoBot.Services;
@@ -10,9 +11,7 @@ using Telegram.Bot;
 
 namespace NoviSad.SokoBot;
 
-static class Program {
-
-
+class Program {
     static void Main(string[] args) {
         using (var dbContext = new BotDbContext())
             dbContext.Database.Migrate();
@@ -48,6 +47,7 @@ static class Program {
 
         var app = builder.Build();
         app.MapControllers();
+        app.Services.GetRequiredService<ILogger<Program>>().LogInformation("Starting application");
         app.Run();
     }
 }

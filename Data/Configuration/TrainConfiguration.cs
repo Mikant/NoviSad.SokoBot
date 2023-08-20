@@ -12,7 +12,7 @@ public class TrainConfiguration : IEntityTypeConfiguration<TrainDto> {
         builder.HasKey(x => x.Id);
 
         builder
-            .HasIndex(x => new { x.Id, Date = x.DepartureTime })
+            .HasIndex(x => new { x.TrainNumber, x.DepartureTime })
             .IsUnique();
 
         builder.HasIndex(x => x.DepartureTime);
