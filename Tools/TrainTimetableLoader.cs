@@ -29,9 +29,7 @@ public static class TrainTimetableLoader {
                 throw new InvalidEnumArgumentException(nameof(direction), (int)direction, typeof(TrainDirection));
         }
 
-        var local = TimeZoneHelper.ToCentralEuropeanTime(date).LocalDateTime;
-
-        var url = $@"https://w3.srbvoz.rs/redvoznje/direktni/_/{fromStationId}/_/{toStationId}/{local:dd.MM.yyyy}/{local:HHmm}";
+        var url = $@"https://w3.srbvoz.rs/redvoznje/direktni/_/{fromStationId}/_/{toStationId}/{date:dd.MM.yyyy}/0000";
         var response = await url.GetAsync(cancellationToken);
 
         var document = new HtmlDocument();
