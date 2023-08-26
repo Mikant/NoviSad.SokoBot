@@ -222,14 +222,6 @@ public class TrainService {
         }
     }
 
-    public void Cleanup(BotDbContext dbContext) {
-        var arrivedTrains = dbContext.Trains.Where(x => x.ArrivalTime < _systemClock.UtcNow);
-        dbContext.Trains.RemoveRange(arrivedTrains);
-
-        var nonboardedPassenger = dbContext.Passengers.Where(x => x.Trains.Count == 0);
-        dbContext.Passengers.RemoveRange(nonboardedPassenger);
-    }
-
     private static TelegramUser Convert(PassengerDto passenger) {
         return new TelegramUser(passenger.Nickname, passenger.ChatId);
     }

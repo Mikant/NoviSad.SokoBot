@@ -53,15 +53,15 @@ public class ControlService {
     }
 
     private async Task OnMessageReceived(Message message, CancellationToken cancellationToken) {
-        _logger.LogInformation("Received message of type: {MessageType}", message.Type);
+        _logger.LogDebug("Received message of type: {MessageType}", message.Type);
         if (message.Text == null)
             return;
 
         var chatId = message.Chat.Id;
 
         var action = message.Text.Split(' ')[0] switch {
-            "/start" => Start(chatId, message.MessageId, false, cancellationToken),
-            "/spectate" => Start(chatId, message.MessageId, true, cancellationToken),
+            "/start" => Start(message, false, cancellationToken),
+            "/spectate" => Start(message, true, cancellationToken),
             _ => ShowUsage(chatId, cancellationToken)
         };
 
@@ -79,22 +79,24 @@ public class ControlService {
             cancellationToken: cancellationToken);
     }
 
-    private async Task Start(long chatId, int messageId, bool spectate, CancellationToken cancellationToken) {
-        //await _botClient.DeleteMessageAsync(chatId, messageId, cancellationToken);
+    private async Task Start(Message message, bool spectate, CancellationToken cancellationToken) {
+        //await _botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken);
+
+        _logger.LogInformation("Starting process for {user} (spectate: {spectate})", message.Chat.Username, spectate);
 
         if (spectate) {
             await _botClient.SendTextMessageAsync(
-                chatId: chatId,
+                chatId: message.Chat.Id,
                 text: "В этом режиме сесть или сойти с поезда не получится, но можно потыкать-посмотреть",
                 cancellationToken: cancellationToken
             );
         }
 
-        await RequestDirection(chatId, RequestContext.Empty with { Spectate = spectate }, cancellationToken);
+        await RequestDirection(message.Chat.Id, RequestContext.Empty with { Spectate = spectate }, cancellationToken);
     }
 
     private async Task BotOnCallbackQueryReceived(CallbackQuery callbackQuery, CancellationToken cancellationToken) {
-        _logger.LogInformation("Received inline keyboard callback from: {CallbackQueryId}", callbackQuery.Id);
+        _logger.LogDebug("Received inline keyboard callback from: {CallbackQueryId}", callbackQuery.Id);
 
         using var scope = _serviceProvider.CreateScope();
 
@@ -139,7 +141,7 @@ public class ControlService {
 
                         var slot = await _trainService.FindTrain(dbContext, requestContext.TrainNumber.Value, requestContext.DepartureTime.Value, cancellationToken);
                         if (slot == null) {
-                            _logger.LogError("Train is not found");
+                            _logger.LogInformation("Train is not found");
                             await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
                             return;
                         }
@@ -190,7 +192,7 @@ public class ControlService {
 
                     var slot = await _trainService.FindTrain(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, cancellationToken);
                     if (slot == null) {
-                        _logger.LogError("Train is not found");
+                        _logger.LogInformation("Train is not found");
                         await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
                         await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
                         return;
@@ -344,6 +346,8 @@ public class ControlService {
     }
 
     private async Task ShowTrackerMessage(TelegramUser user, TrainSlot slot, int? updateMessageId, CancellationToken cancellationToken) {
+        _logger.LogDebug("Tracker message to {user}", user.Username);
+
         var cetDepartureTime = TimeZoneHelper.ToCentralEuropeanTime(slot.Train.DepartureTime);
 
         var messageBuilder = new StringBuilder();
@@ -415,6 +419,8 @@ public class ControlService {
     private async Task NotifyNewPassengerIsOnboard(TelegramUser user, TrainSlot slot, CancellationToken cancellationToken) {
         var query = new TrainQuery(slot.Train.TrainNumber, slot.Train.DepartureTime);
 
+        _logger.LogDebug("Notifying existing passengers. user: {user}, passengers: {passengers}", user.Username, string.Join(", ", slot.Passengers.Select(x => x.Username)));
+
         foreach (var passenger in slot.Passengers) {
             if (passenger == user)
                 continue;
@@ -424,9 +430,11 @@ public class ControlService {
                     InlineKeyboardButton.WithCallbackData("Посмотреть", Serializer.Serialize(query))
                 };
 
+                var cetDepartureTime = TimeZoneHelper.ToCentralEuropeanTime(slot.Train.DepartureTime);
+
                 await _botClient.SendTextMessageAsync(
                     chatId: passenger,
-                    text: $"Новый попутчик на {slot.Train.DepartureTime:HH:mm}: {user.Username}",
+                    text: $"Новый попутчик на {cetDepartureTime:HH:mm}: {user.Username}",
                     replyMarkup: ToLinearMarkup(buttons),
                     cancellationToken: cancellationToken);
 

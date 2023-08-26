@@ -1,13 +1,17 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using NoviSad.SokoBot.Tools;
 
 namespace NoviSad.SokoBot.Data.Converters;
 
 public class DateTimeOffsetToUtcMinutesConverter : ValueConverter<DateTimeOffset, long> {
+    private const long TicksPerMillisecond = 10000;
+    private const long TicksPerSecond = TicksPerMillisecond * 1000;
+    private const long TicksPerMinute = TicksPerSecond * 60;
+
     public DateTimeOffsetToUtcMinutesConverter()
         : base(
-            x => x.UtcDateTime.Ticks / TimeZoneHelper.TicksPerMinute,
-            x => new DateTimeOffset(x * TimeZoneHelper.TicksPerMinute, TimeSpan.Zero)
-        ) { }
+            x => x.UtcDateTime.Ticks / TicksPerMinute,
+            x => new DateTimeOffset(x * TicksPerMinute, TimeSpan.Zero)
+        ) {
+    }
 }

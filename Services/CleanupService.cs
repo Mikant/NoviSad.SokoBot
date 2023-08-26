@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Logging;
 using NoviSad.SokoBot.Data;
 
@@ -11,10 +13,12 @@ namespace NoviSad.SokoBot.Services;
 
 public class CleanupService : BackgroundService {
     private readonly ILogger<CleanupService> _logger;
+    private readonly ISystemClock _systemClock;
     private readonly IServiceProvider _serviceProvider;
 
-    public CleanupService(IServiceProvider serviceProvider, ILogger<CleanupService> logger) {
+    public CleanupService(ILogger<CleanupService> logger, ISystemClock systemClock, IServiceProvider serviceProvider) {
         _logger = logger;
+        _systemClock = systemClock;
         _serviceProvider = serviceProvider;
     }
 
@@ -22,30 +26,28 @@ public class CleanupService : BackgroundService {
         while (!stoppingToken.IsCancellationRequested) {
             try {
                 using var scope = _serviceProvider.CreateScope();
-                var service = scope.ServiceProvider.GetRequiredService<TrainService>();
                 var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
 
-                var trainCount0 = await dbContext.Trains.CountAsync(stoppingToken);
-                var passengerCount0 = await dbContext.Passengers.CountAsync(stoppingToken);
+                var arrivedTrains = await dbContext.Trains
+                    .Where(x => x.ArrivalTime < _systemClock.UtcNow)
+                    .ToListAsync(stoppingToken);
+                dbContext.Trains.RemoveRange(arrivedTrains);
 
-                service.Cleanup(dbContext);
+                var offboardedPassengers = await dbContext.Passengers
+                    .Where(x => x.Trains.Count == 0)
+                    .ToListAsync(stoppingToken);
+                dbContext.Passengers.RemoveRange(offboardedPassengers);
 
                 await dbContext.SaveChangesAsync(stoppingToken);
 
-                var trainCount1 = await dbContext.Trains.CountAsync(stoppingToken);
-                var passengerCount1 = await dbContext.Passengers.CountAsync(stoppingToken);
-
-                var trainDelta = trainCount0 - trainCount1;
-                var passengerDelta = passengerCount0 - passengerCount1;
-
-                if (trainDelta > 0)
+                if (arrivedTrains.Count > 0)
                 {
-                    _logger.LogInformation("Trains were cleaned up, count: {count}", trainDelta);
+                    _logger.LogInformation("Trains were cleaned up, count: {count}, trains: {trains}", arrivedTrains.Count, string.Join(", ", arrivedTrains.Select(x => x.TrainNumber)));
                 }
 
-                if (passengerDelta > 0)
+                if (offboardedPassengers.Count > 0)
                 {
-                    _logger.LogInformation("Passengers were cleaned up, count: {count}", passengerDelta);
+                    _logger.LogInformation("Passengers were cleaned up, count: {count}, passengers: {passengers}", offboardedPassengers.Count, string.Join(", ", offboardedPassengers.Select(x => x.Nickname)));
                 }
 
             } catch (Exception e) when (e is not OperationCanceledException) {
