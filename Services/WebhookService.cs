@@ -5,11 +5,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoviSad.SokoBot.Controllers;
 using System;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NoviSad.SokoBot.Tools;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
 namespace NoviSad.SokoBot.Services;
@@ -17,6 +19,7 @@ namespace NoviSad.SokoBot.Services;
 public class WebhookService : IHostedService {
     private readonly ILogger<WebhookService> _logger;
     private readonly IServiceProvider _serviceProvider;
+
     private readonly BotConfiguration _config;
 
     public WebhookService(
@@ -41,22 +44,27 @@ public class WebhookService : IHostedService {
 
         _logger.LogInformation("Setting webhook: " + webhookUri.AbsoluteUri);
 
+        var certificateFileName = Path.ChangeExtension(Environment.GetEnvironmentVariable("Kestrel__Certificates__Default__Path"), ".pem");
+        await using var certificateStream = System.IO.File.OpenRead(certificateFileName);
+
         var botClient = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
         await botClient.SetWebhookAsync(
             url: webhookUri.AbsoluteUri,
             allowedUpdates: Array.Empty<UpdateType>(),
             secretToken: _config.AuthToken,
-            cancellationToken: cancellationToken);
+            certificate: new InputFileStream(certificateStream, certificateFileName),
+            cancellationToken: cancellationToken
+        );
 
         _logger.LogInformation("Webhook is set");
     }
 
     public async Task StopAsync(CancellationToken cancellationToken) {
         using var scope = _serviceProvider.CreateScope();
-        
+
         var botClient = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
         await botClient.DeleteWebhookAsync(cancellationToken: cancellationToken);
-    
+
         _logger.LogInformation("Webhook is removed");
     }
 }

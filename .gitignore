@@ -2,4 +2,6 @@
 /obj
 /.vs
 /.idea
-db.sqlite
+mnt/db.sqlite
+sokobot.pfx
+sokobot.pem

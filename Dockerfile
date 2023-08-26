@@ -13,6 +13,10 @@ RUN dotnet build "NoviSad.SokoBot.csproj" -c Release -o /app/build
 FROM build AS publish
 RUN dotnet publish "NoviSad.SokoBot.csproj" -c Release -o /app/publish
 
+WORKDIR /app
+COPY /sokobot.pem /sokobot.pem
+COPY /sokobot.pfx /sokobot.pfx
+
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
