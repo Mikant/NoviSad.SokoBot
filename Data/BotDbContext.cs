@@ -9,7 +9,7 @@ public class BotDbContext : DbContext {
     public DbSet<PassengerDto> Passengers => Set<PassengerDto>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
-        optionsBuilder.UseSqlite("Data Source=db.sqlite");
+        optionsBuilder.UseSqlite("Data Source=mnt/db.sqlite");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -21,7 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="db.sqlite" />
+    <None Update="sokobot.pfx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="sokobot.pem">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
