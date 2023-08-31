@@ -121,7 +121,14 @@ public class ControlService {
 
             var requestContext = Serializer.DeserializeRequestContext(callbackQuery.Data);
             if (requestContext != null) {
-                await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                try
+                {
+                    await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "An exception occurred while deleting message. payload: {@payload}, context: {@context}", callbackQuery, requestContext);
+                }
 
                 if (requestContext.Cancel)
                     return;
