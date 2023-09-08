@@ -121,12 +121,9 @@ public class ControlService {
 
             var requestContext = Serializer.DeserializeRequestContext(callbackQuery.Data);
             if (requestContext != null) {
-                try
-                {
+                try {
                     await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
-                }
-                catch (Exception e)
-                {
+                } catch (Exception e) {
                     _logger.LogError(e, "An exception occurred while deleting message. payload: {@payload}, context: {@context}", callbackQuery, requestContext);
                 }
 
@@ -201,12 +198,20 @@ public class ControlService {
                     if (slot == null) {
                         _logger.LogInformation("Train is not found");
                         await NotifyTrainIsNotFound(callbackQuery.Id, cancellationToken);
-                        await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                        try {
+                            await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                        } catch (Exception e) {
+                            _logger.LogError(e, "An exception occurred while deleting message. payload: {@payload}, context: {@context}", callbackQuery, requestContext);
+                        }
                         return;
                     }
 
                     if (trainQuery.Leave) {
-                        await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                        try {
+                            await _botClient.DeleteMessageAsync(user.ChatId, callbackQuery.Message.MessageId, cancellationToken);
+                        } catch (Exception e) {
+                            _logger.LogError(e, "An exception occurred while deleting message. payload: {@payload}, context: {@context}", callbackQuery, requestContext);
+                        }
 
                         slot = await _trainService.RemovePassenger(dbContext, trainQuery.TrainNumber, trainQuery.DepartureTime, user, cancellationToken);
 
